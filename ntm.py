@@ -2,6 +2,21 @@ import numpy as np
 
 from LSTM import LSTM
 
+# finds the cosine of the angle between vectors in K and vectors in M
+# k: size (num_examples, M)
+# M: size (N, M)
+# return: size (num_examples, N)
+def K(k, M):
+    k_norm = np.linalg.norm(k, axis=1)[:,np.newaxis]
+    M_norm = np.linalg.norm(M, axis=1)[np.newaxis,:]
+    kM_norm = k_norm.dot(M_norm)
+    return k.dot(M.T) / kM_norm
+
+def softmax(u):
+    u = u - u.mean()
+    exp_u = np.exp(u)
+    return exp_u / exp_u.sum()
+
 # neural turing machine with LSTM controller
 class NTM:
 
@@ -25,16 +40,12 @@ class NTM:
         self.layer_sizes = [self.c_input_size] + hidden_sizes + \
             [self.c_output_size]
         self.lstm = LSTM(self.layer_sizes)
-        self.memory = np.zeros((N, M))
-
-    # finds the cosine of the angle between 2 vectors
-    def cos_angle(u, v):
-        return u.dot(v)/(np.linalg.norm(u)*np.linalg.norm(v))
+        self.memory = np.random.randn(N, M)
 
     # X: input, size (num_examples, X_size)
     # r: last vectors read from memory, size (num_examples, R*M)
-    # s_prev, h_prev: inputs from previous forward_prop_lstm_once, each size
-    # (num_examples, controller_output_size)
+    # s_prev, h_prev: inputs from previous forward_prop_lstm_once, each a list
+    # of (num_exmaples, layer_output_size) matrices
     # return: (s, h, gates, outp, read_heads, write_heads, add_vec, erase_vec)
     # s, h, and gates are the output from LSTM.forward_prop_once()
     # outp: output, size (num_examples, Y_size)
@@ -74,3 +85,31 @@ class NTM:
         erase_vec = erase_vec.reshape(num_examples, self.W, self.M)
 
         return s, h, gates, outp, read_heads, write_heads, add_vec, erase_vec
+
+    # computes next memory-indexing weights for a read or write head
+    # w_prev: previous memory-indexing weights, size (num_examples, N)
+    # all elements of w_prev must be between 0 and 1 and the sum must be 1
+    # k: key vector, size (num_examples, M)
+    # beta: key strength, size (num_examples, 1)
+    # g: interpolation gate, size (num_examples, 1)
+    # all elements of g must be between 0 and 1
+    # s: shift vector, size (num_examples, N)
+    # all elements of s should be between 0 and 1 and the sum bust be 1
+    # gamma: sharpness, size (num_examples, 1)
+    def compute_w(self, w_prev, k, beta, g, s, gamma):
+        wc = softmax(beta * K(k, self.memory))
+        wg = g*wc + (1-g)*w_prev
+        wt = np.concatenate([np.convolve(wgi, si, "same")[np.newaxis,:]
+            for wgi, si in zip(wg, s)], axis=0)
+        wtgamma = wt ** gamma
+        w = wtgamma / wtgamma.sum(axis=1)[:,np.newaxis]
+        return w
+
+    def forward_prop_once(self, X, r, s_prev, h_prev):
+
+        # forward prop once
+        s, h, gates, outp, read_heads, write_heads, add_vec, erase_vec = \
+            forward_prop_lstm_once(X, r, s_prev, h_prev)
+
+        # read from memory
+        #read_weights = [compute_w()]'''
