@@ -7,10 +7,8 @@ from LSTM import LSTM
 # M: size (N, M)
 # return: size (num_examples, N)
 def K(k, M):
-    k_norm = np.linalg.norm(k, axis=1)[:,np.newaxis]
-    M_norm = np.linalg.norm(M, axis=1)[np.newaxis,:]
-    kM_norm = k_norm.dot(M_norm)
-    return k.dot(M.T) / kM_norm
+    k = k[np.newaxis,:]
+    return k.dot(M.T)[0] / (np.linalg.norm(k) * np.linalg.norm(M, axis=1))
 
 def softmax(u):
     u = u - u.mean()
@@ -18,6 +16,7 @@ def softmax(u):
     return exp_u / exp_u.sum()
 
 # neural turing machine with LSTM controller
+# NOTE: using more than one example at a time does not work yet
 class NTM:
 
     # N: number of rows of memory
@@ -42,74 +41,94 @@ class NTM:
         self.lstm = LSTM(self.layer_sizes)
         self.memory = np.random.randn(N, M)
 
-    # X: input, size (num_examples, X_size)
-    # r: last vectors read from memory, size (num_examples, R*M)
+    # X: input, size (X_size)
+    # r: last vectors read from memory, size (R, M)
     # s_prev, h_prev: inputs from previous forward_prop_lstm_once, each a list
-    # of (num_exmaples, layer_output_size) matrices
+    # of (layer_output_size) matrices
     # return: (s, h, gates, outp, read_heads, write_heads, add_vec, erase_vec)
     # s, h, and gates are the output from LSTM.forward_prop_once()
-    # outp: output, size (num_examples, Y_size)
-    # read_heads: size (num_examples, R, M+N+3)
-    # write_heads: size (num_examples, W, M+N+3)
-    # add_vec: size (num_examples, W, M)
-    # erase_vec: size (num_examples, W, M)
+    # outp: output, size (Y_size)
+    # read_heads: size (R, M+N+3)
+    # write_heads: size (W, M+N+3)
+    # add_vec: size (W, M)
+    # erase_vec: size (W, M)
     def forward_prop_lstm_once(self, X, r, s_prev, h_prev):
-        num_examples = X.shape[0]
 
         # forward prop LSTM
-        controller_input = np.concatenate((X, r), axis=1)
+        r = r.reshape(self.R*self.M)
+        controller_input = np.concatenate((X, r))[np.newaxis,:]
         s, h, gates = self.lstm.forward_prop_once(controller_input, s_prev,
             h_prev, return_gates=True)
-        contr_output = h[-1]
+        contr_output = h[-1][0]
 
         # NTM output
-        outp = contr_output[:,:self.Y_size]
+        outp = contr_output[:self.Y_size]
 
         # read heads
         rw_index = self.Y_size + self.R*(self.M+self.N+3)
-        read_heads = contr_output[:, self.Y_size:rw_index]
-        read_heads = read_heads.reshape(num_examples, self.R, self.M+self.N+3)
+        read_heads = contr_output[self.Y_size:rw_index]
+        read_heads = read_heads.reshape(self.R, self.M+self.N+3)
 
         # write heads
         we_index = rw_index + self.W*(self.M+self.N+3)
-        write_heads = contr_output[:, rw_index:we_index]
-        write_heads = write_heads.reshape(num_examples, self.W, self.M+self.N+3)
+        write_heads = contr_output[rw_index:we_index]
+        write_heads = write_heads.reshape(self.W, self.M+self.N+3)
 
         # add vector
         ea_index = we_index + self.W*self.M
-        add_vec = contr_output[:, we_index:ea_index]
-        add_vec = add_vec.reshape(num_examples, self.W, self.M)
+        add_vec = contr_output[we_index:ea_index]
+        add_vec = add_vec.reshape(self.W, self.M)
 
         # erase vector
-        erase_vec = contr_output[:, ea_index:]
-        erase_vec = erase_vec.reshape(num_examples, self.W, self.M)
+        erase_vec = contr_output[ea_index:]
+        erase_vec = erase_vec.reshape(self.W, self.M)
 
         return s, h, gates, outp, read_heads, write_heads, add_vec, erase_vec
 
     # computes next memory-indexing weights for a read or write head
-    # w_prev: previous memory-indexing weights, size (num_examples, N)
+    # w_prev: previous memory-indexing weights, size (N)
     # all elements of w_prev must be between 0 and 1 and the sum must be 1
-    # k: key vector, size (num_examples, M)
-    # beta: key strength, size (num_examples, 1)
-    # g: interpolation gate, size (num_examples, 1)
-    # all elements of g must be between 0 and 1
-    # s: shift vector, size (num_examples, N)
+    # k: key vector, size (M)
+    # beta: key strength, scalar
+    # g: interpolation gate, scalar; all elements of g must be between 0 and 1
+    # s: shift vector, size (N)
     # all elements of s should be between 0 and 1 and the sum bust be 1
-    # gamma: sharpness, size (num_examples, 1)
+    # gamma: sharpness, scalar
     def compute_w(self, w_prev, k, beta, g, s, gamma):
         wc = softmax(beta * K(k, self.memory))
         wg = g*wc + (1-g)*w_prev
-        wt = np.concatenate([np.convolve(wgi, si, "same")[np.newaxis,:]
-            for wgi, si in zip(wg, s)], axis=0)
+        wt = np.convolve(wg, s, "same")
         wtgamma = wt ** gamma
-        w = wtgamma / wtgamma.sum(axis=1)[:,np.newaxis]
+        w = wtgamma / wtgamma.sum()
         return w
 
-    def forward_prop_once(self, X, r, s_prev, h_prev):
+    '''# modifies memory and computes next output
+    # X: input, size (num_examples, X_size)
+    # r: last reads from memory, size (num_examples, R*M)
+    # s_prev: previous LSTM internal state, size (num_examples, M+N+3)
+    # h_prev: previous LSTM output, size (num_examples, M+N+3)
+    # wr_prev: previous read indexing matrices, size (num_examples, R, N)
+    # ww_prev: previous write indexing matrices, size (num_examples, W, N)
+    def forward_prop_once(self, X, r, s_prev, h_prev, wr_prev, ww_prev):
+
+        num_examples = X.shape[0]
 
         # forward prop once
         s, h, gates, outp, read_heads, write_heads, add_vec, erase_vec = \
             forward_prop_lstm_once(X, r, s_prev, h_prev)
 
         # read from memory
-        #read_weights = [compute_w()]'''
+        read_weights = []
+        for i in range(self.R):
+            w = compute_w(w_prev[:,i,:], read_heads[:,:self.M],
+                read_heads[:,self.M], read_heads[:,self.M+1],
+                read_heads[:,self.M+1:self.M+self.N+1], read_heads[:,-1])
+            read_weights.append(w)
+        read_weights = np.concatenate(read_weights, axis=1).swapaxes(0,1)
+
+        # write to memory
+        for i in range(self.W):
+            w = compute_w(w_prev[:,i,:], write_heads[:,:self.M],
+                write_heads[:,self.M], write_heads[:,self.M+1],
+                write_heads[:,self.M+1:self.M+self.N+1], write_heads[:,-1])
+            we = w.dot(erase_vec)'''
