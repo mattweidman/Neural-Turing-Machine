@@ -15,6 +15,9 @@ def softmax(u):
     exp_u = np.exp(u)
     return exp_u / exp_u.sum()
 
+def sigmoid(x):
+    return 1/(1+np.exp(-x))
+
 # neural turing machine with LSTM controller
 # NOTE: using more than one example at a time does not work yet
 class NTM:
@@ -66,12 +69,12 @@ class NTM:
 
         # read heads
         rw_index = self.Y_size + self.R*(self.M+self.N+3)
-        read_heads = contr_output[self.Y_size:rw_index]
+        read_heads = sigmoid(contr_output[self.Y_size:rw_index])
         read_heads = read_heads.reshape(self.R, self.M+self.N+3)
 
         # write heads
         we_index = rw_index + self.W*(self.M+self.N+3)
-        write_heads = contr_output[rw_index:we_index]
+        write_heads = sigmoid(contr_output[rw_index:we_index])
         write_heads = write_heads.reshape(self.W, self.M+self.N+3)
 
         # add vector
@@ -102,33 +105,36 @@ class NTM:
         w = wtgamma / wtgamma.sum()
         return w
 
-    '''# modifies memory and computes next output
-    # X: input, size (num_examples, X_size)
-    # r: last reads from memory, size (num_examples, R*M)
-    # s_prev: previous LSTM internal state, size (num_examples, M+N+3)
-    # h_prev: previous LSTM output, size (num_examples, M+N+3)
-    # wr_prev: previous read indexing matrices, size (num_examples, R, N)
-    # ww_prev: previous write indexing matrices, size (num_examples, W, N)
+    # modifies memory and computes next output
+    # X: input, size (X_size)
+    # r: last reads from memory, size (R, M)
+    # s_prev: previous LSTM internal state, size (M+N+3)
+    # h_prev: previous LSTM output, size (M+N+3)
+    # wr_prev: previous read indexing matrices, size (R, N)
+    # ww_prev: previous write indexing matrices, size (W, N)
+    # returns: read_weights size (R, N), and outp size (Y_size)
     def forward_prop_once(self, X, r, s_prev, h_prev, wr_prev, ww_prev):
-
-        num_examples = X.shape[0]
 
         # forward prop once
         s, h, gates, outp, read_heads, write_heads, add_vec, erase_vec = \
-            forward_prop_lstm_once(X, r, s_prev, h_prev)
+            self.forward_prop_lstm_once(X, r, s_prev, h_prev)
 
         # read from memory
         read_weights = []
         for i in range(self.R):
-            w = compute_w(w_prev[:,i,:], read_heads[:,:self.M],
-                read_heads[:,self.M], read_heads[:,self.M+1],
-                read_heads[:,self.M+1:self.M+self.N+1], read_heads[:,-1])
-            read_weights.append(w)
-        read_weights = np.concatenate(read_weights, axis=1).swapaxes(0,1)
+            w = self.compute_w(wr_prev[i], read_heads[i,:self.M],
+                read_heads[i,self.M], read_heads[i,self.M+1],
+                read_heads[i,self.M+1:self.M+self.N+1], read_heads[i,-1])
+            read_weights.append(w[np.newaxis,:])
+        read_weights = np.concatenate(read_weights, axis=0)
 
         # write to memory
         for i in range(self.W):
-            w = compute_w(w_prev[:,i,:], write_heads[:,:self.M],
-                write_heads[:,self.M], write_heads[:,self.M+1],
-                write_heads[:,self.M+1:self.M+self.N+1], write_heads[:,-1])
-            we = w.dot(erase_vec)'''
+            w = self.compute_w(ww_prev[i], write_heads[i,:self.M],
+                write_heads[i,self.M], write_heads[i,self.M+1],
+                write_heads[i,self.M+1:self.M+self.N+1], write_heads[i,-1])
+            we = w[:,np.newaxis].dot(erase_vec[np.newaxis,i])
+            wa = w[:,np.newaxis].dot(add_vec[np.newaxis,i])
+            self.memory = self.memory * (1-we) + wa
+
+        return read_weights, outp
