@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import ndimage
 
 from ntm import NTM
 from ntm import softmax
@@ -67,5 +68,25 @@ def test_compute_w():
     print(read_weights)
     print(outp)
 
+def circular_convolve_sum(a, b):
+    N = a.shape[0]
+    c = np.zeros((N))
+    for i in range(N):
+        for j in range(N):
+            c[i] += a[j] * b[i-j]
+    return c
+
+def circular_convolve_numpy(a, b):
+    return np.roll(ndimage.convolve(a, b, mode='wrap'), len(a)//2)
+
+def test_circular_convolve():
+    N = 43
+    a = np.arange(N)
+    b = np.arange(N)
+    c = circular_convolve_sum(a,b)
+    d = circular_convolve_numpy(a,b)
+    diff = c-d
+    print(np.linalg.norm(diff))
+
 if __name__ == "__main__":
-    test_compute_w()
+    test_circular_convolve()

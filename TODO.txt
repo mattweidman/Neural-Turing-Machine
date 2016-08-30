@@ -1,3 +1,5 @@
 TODO
 
 Make sure circular convolutions are being used
+
+Get numerical_gradient_scalar() to work
