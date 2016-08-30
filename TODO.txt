@@ -1,1 +1,3 @@
 TODO
+
+Make sure circular convolutions are being used

@@ -100,7 +100,7 @@ class NTM:
     def compute_w(self, w_prev, k, beta, g, s, gamma):
         wc = softmax(beta * K(k, self.memory))
         wg = g*wc + (1-g)*w_prev
-        wt = np.convolve(wg, s, "same")
+        wt = np.convolve(wg, s, "same") # TODO: make sure this is CIRCULAR
         wtgamma = wt ** gamma
         w = wtgamma / wtgamma.sum()
         return w
