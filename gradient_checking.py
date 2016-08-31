@@ -155,6 +155,46 @@ def check_key():
     grad = beta / (k_norm * M_norm) * (k - M * M.dot(k.T) / M_norm**2)
     print(n_grad-grad)
 
+def compute_w_last2(wg, s, gamma):
+    wt = np.zeros(wg.shape)
+    for i in range(len(wg)):
+        for j in range(len(s)):
+            wt[i] += wg[j] * s[i-j]
+    w = wt**gamma / (wt**gamma).sum()
+    return wt, w
+
+def backprop_w_last2(wg, s, gamma):
+    wt = compute_w_last2(wg, s, gamma)[0]
+    wgamma = wt**gamma
+    wgsum = wgamma.sum()
+    dwt = gamma * (wt**(gamma-1))/wgsum * (1-wgamma/wgsum)
+    dgamma = wgamma/wgsum**2 * (np.log(wt)*wgsum -
+        np.sum(wgamma*np.log(wt)))
+    dwg = np.zeros(wg.shape)
+    for i in range(len(wg)):
+        for j in range(len(wt)):
+            dwg[i] += dwt[j] * s[j-i]
+    return dgamma, dwg
+
+def check_w_last2():
+    n = 9
+    wg = softmax(np.random.randn(n))
+    s = softmax(np.random.randn(n))
+    gamma = 1/(1+np.exp(-np.random.randn()))
+    grad = backprop_w_last2(wg, s, gamma)
+
+    # check gamma
+    f = lambda gamma: compute_w_last2(wg, s, gamma)[1]
+    n_grad = numerical_gradient_scalar(f, gamma)
+    print(n_grad - grad[0])
+
+    # check wg
+    f = lambda: compute_w_last2(wg, s, gamma)[0]
+    n_grad = numerical_gradient_array(f, wg)
+    print(n_grad)
+    print(grad[1])
+    print(n_grad - grad[1])
+
 def compute_w(w_prev, M_prev, k, beta, g, s, gamma):
     u = beta * k.dot(M_prev.T)/(np.linalg.norm(k)*np.linalg.norm(M_prev, axis=1))
     wc = softmax(u)
@@ -213,4 +253,4 @@ def check_head():
     print(grad[3] - n_ds)
 
 if __name__ == "__main__":
-    check_head()
+    check_w_last2()
