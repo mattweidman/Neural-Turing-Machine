@@ -137,33 +137,23 @@ def check_key():
     n = 9
     m = 10
     beta = np.random.randn()
-    k = np.random.randn(m)
+    k = np.random.randn(1, m)
     M = np.random.randn(n, m)
-    f = lambda: beta * k[np.newaxis,:].dot(M.T) / (np.linalg.norm(k) *
+    f = lambda: beta * k.dot(M.T) / (np.linalg.norm(k) *
         np.linalg.norm(M, axis=1))
 
-    # numerical gradient with respect to k
-    n_grad = np.zeros((n, m))
-    for j in range(m):
-        k[j] += epsilon
-        f1 = f()
-        k[j] -= 2*epsilon
-        f2 = f()
-        k[j] += epsilon
-        n_grad[:,j] = (f1-f2)/(2*epsilon)
-
     # gradient with respect to k
-    grad = np.zeros((n,m))
+    n_grad = numerical_gradient_matrix(f, k)
     k_norm = np.sqrt((k**2).sum())
-    for i in range(n):
-        Mi_norm = np.sqrt((M[i]**2).sum())
-        for j in range(m):
-            grad[i,j] = beta / (k_norm * Mi_norm) \
-                * (M[i,j] - k[j]*k.dot(M[i])/k_norm**2)
-    # grad = 1/norm_k * (M/norm_M).sum(axis=0) - k / norm_k**3 * \
-    #     k.dot((M/norm_M).T).sum()
-    # grad = beta * (M/np.linalg.norm(M, axis=1)[:,np.newaxis]).sum(axis=0)
+    M_norm = np.sqrt((M**2).sum(axis=1))[:,np.newaxis]
+    grad = beta / (k_norm * M_norm) * (M - M.dot(k.T).dot(k)/k_norm**2)
+    grad = grad.sum(axis=0)
     print(n_grad - grad)
+
+    # gradient with respect to M
+    n_grad = numerical_gradient_matrix(f, M)
+    grad = beta / (k_norm * M_norm) * (k - M * k.dot(M.T).T / M_norm**2)
+    print(n_grad-grad)
 
 if __name__ == "__main__":
     check_key()
