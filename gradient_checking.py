@@ -34,13 +34,13 @@ def numerical_gradient_array(f, param):
     return grad_param
 
 # find the numerical gradient of function f with respect to param
-# param needs to be an array of size one so it can be modified
+# f needs to take param as an input
 def numerical_gradient_scalar(f, param):
-    param[0] += epsilon
-    f1 = f()
-    param[0] -= 2*epsilon
-    f2 = f()
-    param[0] += epsilon
+    param += epsilon
+    f1 = f(param)
+    param -= 2*epsilon
+    f2 = f(param)
+    param += epsilon
     return (f1-f2)/(2*epsilon)
 
 def check_numerical_gradient():
@@ -54,10 +54,9 @@ def check_numerical_gradient():
 def check_numerical_gradient_scalar():
     a = np.random.randn(10)
     x = np.random.randn()
-    f = lambda: x**2
-    n_grad = numerical_gradient_scalar(f, [x])
+    f = lambda x: x**2
+    n_grad = numerical_gradient_scalar(f, x)
     grad = 2*x
-    print(n_grad)
     print(n_grad-grad)
 
 def check_w_tilde():
@@ -76,9 +75,11 @@ def check_gamma():
     n = 10
     w = softmax(np.random.randn(n))
     gamma = np.random.randn()
-    f = lambda: w**gamma / (w**gamma).sum()
+    f = lambda gamma: w**gamma / (w**gamma).sum()
     n_grad = numerical_gradient_scalar(f, gamma)
-    print(n_grad)
+    wg = w**gamma
+    grad = wg/wg.sum()**2 * (np.log(w)*wg.sum() - np.sum(wg*np.log(w)))
+    print(grad-n_grad)
 
 def circular_convolve(a, b):
     return np.roll(ndimage.convolve(a, b, mode='wrap'), len(a)//2)
@@ -119,9 +120,50 @@ def check_gated():
     print(n_grad-grad)
 
     # gradient with respect to g
-    n_grad = numerical_gradient_scalar(f, [g])
+    f = lambda g: g*wc + (1-g)*w_prev
+    n_grad = numerical_gradient_scalar(f, g)
     grad = wc - w_prev
     print(n_grad - grad)
 
+def check_softmax():
+    n = 9
+    x = softmax(np.random.randn(n))
+    f = lambda: softmax(x)
+    n_grad = numerical_gradient_array(f, x)
+    grad = f() * (1-f())
+    print(n_grad-grad)
+
+def check_key():
+    n = 9
+    m = 10
+    beta = np.random.randn()
+    k = np.random.randn(m)
+    M = np.random.randn(n, m)
+    f = lambda: beta * k[np.newaxis,:].dot(M.T) / (np.linalg.norm(k) *
+        np.linalg.norm(M, axis=1))
+
+    # numerical gradient with respect to k
+    n_grad = np.zeros((n, m))
+    for j in range(m):
+        k[j] += epsilon
+        f1 = f()
+        k[j] -= 2*epsilon
+        f2 = f()
+        k[j] += epsilon
+        n_grad[:,j] = (f1-f2)/(2*epsilon)
+
+    # gradient with respect to k
+    grad = np.zeros((n,m))
+    k_norm = np.sqrt((k**2).sum())
+    for i in range(n):
+        Mi_norm = np.sqrt((M[i]**2).sum())
+        for j in range(m):
+            grad[i,j] = beta / (k_norm * Mi_norm) \
+                * (M[i,j] - k[j]*k.dot(M[i])/k_norm**2)
+    # grad = 1/norm_k * (M/norm_M).sum(axis=0) - k / norm_k**3 * \
+    #     k.dot((M/norm_M).T).sum()
+    # grad = beta * (M/np.linalg.norm(M, axis=1)[:,np.newaxis]).sum(axis=0)
+    print(n_grad - grad)
+
 if __name__ == "__main__":
-    check_numerical_gradient_scalar()
+    check_key()
