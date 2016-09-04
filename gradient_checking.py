@@ -172,9 +172,13 @@ def backprop_w_last2(wg, s, gamma):
     n = dwt.shape[0]
     dwg = np.zeros((n))
     for i in range(n):
-        for k in range(n):
-            dwg[i] += dwt[i,k] * s[k-i]
-    return dgamma, dwg
+        dwg[i] = dwt[i].dot(np.roll(s,i))
+        # for k in range(n):
+        #     dwg[i] += dwt[i,k] * s[k-i]
+    ds = np.zeros((n))
+    for i in range(n):
+        ds[i] = dwt[i].dot(np.roll(wg,i))
+    return dgamma, dwg, ds
 
 def check_w_last2():
     n = 9
@@ -189,24 +193,14 @@ def check_w_last2():
     n_grad = numerical_gradient_scalar(f, gamma)
     print(n_grad - grad[0])
 
-    # check wt
-    # f = lambda: compute_w_last2(wt, gamma)[1]
-    # n_grad = np.zeros((n, n))
-    # for i in range(n):
-    #     wt[i] += epsilon
-    #     f1 = f()
-    #     wt[i] -= 2*epsilon
-    #     f2 = f()
-    #     wt[i] += epsilon
-    #     n_grad[:,i] = (f1-f2)/(2*epsilon)
-    # print(n_grad - grad[1])
-
     # check wg
     f = lambda: compute_w_last2(wg, s, gamma)[1]
     n_grad = numerical_gradient_array(f, wg)
-    print(n_grad)
-    print(grad[1])
     print(n_grad - grad[1])
+
+    # check s
+    n_grad = numerical_gradient_array(f, s)
+    print(n_grad-grad[2])
 
 def compute_w(w_prev, M_prev, k, beta, g, s, gamma):
     u = beta * k.dot(M_prev.T)/(np.linalg.norm(k)*np.linalg.norm(M_prev, axis=1))
@@ -219,11 +213,17 @@ def compute_w(w_prev, M_prev, k, beta, g, s, gamma):
 def backprop_w(w_prev, M_prev, k, beta, g, s, gamma, u, wc, wg, wt, grad_in):
     wgamma = wt**gamma
     wgsum = wgamma.sum()
-    dwt = grad_in * gamma * (wt**(gamma-1))/wgsum * (1-wgamma/wgsum)
+    dwt = - gamma * wgamma[:,np.newaxis].dot((wt**(gamma-1))[np.newaxis,:]) \
+        / wgsum**2
+    dwt[np.diag_indices(len(wt))] += gamma * wt**(gamma-1) / wgsum
     dgamma = grad_in * wgamma/wgsum**2 * (np.log(wt)*wgsum -
         np.sum(wgamma*np.log(wt)))
-    dwg = dwt * s[0] * np.ones(wg.shape)
-    ds = dwt * wg[0] * np.ones(s.shape)
+    dwg = np.zeros(wg.shape)
+    for i in range(len(dwg)):
+        dwg[i] = dwt[i].dot(np.roll(s,i))
+    ds = np.zeros(s.shape)
+    for i in range(len(ds)):
+        ds[i] = dwt[i].dot(np.roll(wg,i))
     dwc = dwg * g * np.ones(wc.shape)
     dw_prev = dwg * (1-g) * np.ones(w_prev.shape)
     dg = dwg * (wc - w_prev)
@@ -266,4 +266,4 @@ def check_head():
     print(grad[3] - n_ds)
 
 if __name__ == "__main__":
-    check_w_last2()
+    check_head()
